@@ -1,10 +1,11 @@
 """Where the actor's P-256 key lives, and what is done with it: signing, and naming its public half."""
+import base64
 import hashlib
 import os
 import tempfile
 from typing import Protocol
 
-from cryptography.exceptions import InvalidSignature
+from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
@@ -23,14 +24,41 @@ def fingerprint_of(public_key: ec.EllipticCurvePublicKey) -> str:
     return hashlib.sha256(_SPKI_PREFIX + point).hexdigest()
 
 
+# SubjectPublicKeyInfo for P-256 with the curve written out in full (explicit parameters, with the
+# standard seed and cofactor) instead of named. What follows these bytes is the 65-byte point.
+_EXPLICIT_P256_PREFIX = bytes.fromhex(
+    "3082014b3082010306072a8648ce3d02013081f7020101302c06072a8648ce3d0101022100ffffffff00000001000000"
+    "000000000000000000ffffffffffffffffffffffff305b0420ffffffff00000001000000000000000000000000ffffff"
+    "fffffffffffffffffc04205ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b031500c49d"
+    "360886e704936a6678e1139d26b7819f7e900441046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a139"
+    "45d898c2964fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5022100ffffffff00000000"
+    "ffffffffffffffffbce6faada7179e84f3b9cac2fc632551020101034200")
+
+
 def load_public_key(spki: bytes) -> ec.EllipticCurvePublicKey:
-    """Reads a P-256 public key from DER or PEM SubjectPublicKeyInfo, in any of its encodings."""
+    """Reads a P-256 public key from DER or PEM SubjectPublicKeyInfo, in any of its encodings.
+
+    A key with the curve written out in full is read here, because not every version of the
+    cryptography package reads that form. Only P-256's own parameters are accepted that way.
+    """
+    der = spki
     if spki.lstrip().startswith(b"-----"):
-        key = serialization.load_pem_public_key(spki)
-    else:
-        key = serialization.load_der_public_key(spki)
-    if not isinstance(key, ec.EllipticCurvePublicKey):
-        raise ValueError("Not an EC public key.")
+        lines = [line.strip() for line in spki.strip().splitlines()]
+        try:
+            der = base64.b64decode(b"".join(line for line in lines if not line.startswith(b"-----")), validate=True)
+        except ValueError:
+            der = b""
+    if len(der) == len(_EXPLICIT_P256_PREFIX) + 65 and der.startswith(_EXPLICIT_P256_PREFIX):
+        return ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), der[len(_EXPLICIT_P256_PREFIX):])
+    try:
+        if spki.lstrip().startswith(b"-----"):
+            key = serialization.load_pem_public_key(spki)
+        else:
+            key = serialization.load_der_public_key(spki)
+    except UnsupportedAlgorithm as unsupported:
+        raise ValueError("Not a P-256 public key.") from unsupported
+    if not isinstance(key, ec.EllipticCurvePublicKey) or not isinstance(key.curve, ec.SECP256R1):
+        raise ValueError("Not a P-256 public key.")
     return key
 
 

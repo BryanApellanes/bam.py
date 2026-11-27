@@ -8,6 +8,7 @@ import json
 import os
 import unittest
 
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from bam_py import (
@@ -59,6 +60,20 @@ class KeyVectors(unittest.TestCase):
                     self.assertEqual(fingerprint_of(load_public_key(base64.b64decode(key[form]))), key["fingerprint"])
                     checked += 1
         self.assertEqual(checked, 12)
+
+    def test_reads_the_explicit_form_from_pem_and_refuses_other_curves(self):
+        key = read("keys.json")["keys"][0]
+        body = key["spkiExplicitParametersBase64"]
+        pem = "-----BEGIN PUBLIC KEY-----\n" + "\n".join(body[i:i + 64] for i in range(0, len(body), 64)) + "\n-----END PUBLIC KEY-----\n"
+        self.assertEqual(fingerprint_of(load_public_key(pem.encode("ascii"))), key["fingerprint"])
+        tampered = bytearray(base64.b64decode(body))
+        tampered[40] ^= 1
+        with self.assertRaises(ValueError):
+            load_public_key(bytes(tampered))
+        other = ec.generate_private_key(ec.SECP384R1()).public_key().public_bytes(
+            serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        with self.assertRaises(ValueError):
+            load_public_key(other)
 
     def test_a_private_scalar_gives_its_public_key_and_fingerprint(self):
         for name, key in KEYS.items():
