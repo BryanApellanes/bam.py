@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bam.py"
+version = "0.1.0"
+description = "Python client for Bam services: actor authentication and signed requests."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Bryan Apellanes" }]
+requires-python = ">=3.10"
+dependencies = ["cryptography>=42"]
+
+[project.urls]
+Source = "https://github.com/BryanApellanes/bam.py"
+Specification = "https://github.com/BryanApellanes/bam.protocol/blob/bam_protocol/spec/actor-auth.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
