@@ -74,7 +74,8 @@ class StandInHost:
             def _answer(self, status, body, content_type="application/json", extra=None):
                 data = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
                 self.send_response(status)
-                self.send_header("Content-Type", content_type)
+                if content_type is not None:
+                    self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(data)))
                 for name, value in (extra or {}).items():
                     self.send_header(name, value)
@@ -105,16 +106,31 @@ class StandInHost:
     def respond(self, method, target, headers, body):
         json_kind = "application/json"
         failure = (401, {"messages": ["Authentication failed."]}, json_kind, None)
+        if target in ("/actor/register", "/actor/token"):
+            # What the host answers before a handler runs: see "Answers before the handler" in the specification.
+            content_type = headers.get("content-type")
+            if content_type is None:
+                return 415, b"", None, None
+            if content_type.split(";")[0].strip().lower() != json_kind:
+                return 401, b"Authentication failed.", "text/plain", None
+            required = ("keysethandle", "publicrsakeypem", "publicecckeypem") if target == "/actor/register" else ("clienttoken",)
+            try:
+                request = {name.lower(): value for name, value in json.loads(body).items()}
+            except (ValueError, AttributeError):
+                return 400, b"", None, None
+            if any(not isinstance(request.get(name), str) for name in required):
+                return 400, b"", None, None
         if target == "/actor/register":
-            request = {name.lower(): value for name, value in json.loads(body).items()}
             handle = request["keysethandle"]
             if handle in self.registered:
                 return 400, {"messages": ["Registration was not accepted."]}, json_kind, None
-            self.registered[handle] = load_public_key(request["publicecckeypem"].encode("ascii"))
+            try:
+                self.registered[handle] = load_public_key(request["publicecckeypem"].encode("ascii"))
+            except ValueError:
+                return 400, {"messages": ["Registration was not accepted."]}, json_kind, None
             return 200, {"keySetHandle": handle}, json_kind, None
         if target == "/actor/token":
-            token = {name.lower(): value for name, value in json.loads(body).items()}["clienttoken"]
-            actor = self._client_token_actor(token)
+            actor = self._client_token_actor(request["clienttoken"])
             if actor is None:
                 return failure
             return 200, self._issue(actor), json_kind, None

@@ -22,7 +22,7 @@ It needs Python 3.10 or later and the `cryptography` package.
 ```python
 from bam_py import ActorClient, FileActorKeyStore
 
-keys = FileActorKeyStore("~/.bam/actor.pem")    # created the first time
+keys = FileActorKeyStore("~/.bam/api.example.com.pem")    # created the first time; one key per host
 client = ActorClient(
     "https://api.example.com",          # the host, with no path
     "ada",                              # your handle
@@ -48,17 +48,25 @@ print(response.status, response.body)
 ## What you need to know
 
 - **The key file.** `FileActorKeyStore` creates a P-256 key the first time and reads it afterwards.
-  On Unix the file is owner-only (0600). On Windows it takes the access rules of its directory, so
-  keep it in your user profile. Pass `password=` to encrypt it. Whoever can read the file can act
-  as you.
+  On Unix the file is owner-only (0600), and a key file that its group or others can reach is
+  refused with `PermissionError`. On Windows it takes the access rules of its directory, so keep it
+  in your user profile. Pass `password=` to encrypt it. Whoever can read the file can act as you.
+- **One key per host.** A signed request does not yet name the host it is for
+  ([bam.protocol#112](https://github.com/BryanApellanes/bam.protocol/issues/112)), so a request
+  captured at one host can be replayed, for a few minutes, at another host that knows the same key.
+  Do not use one key at hosts that do not trust each other.
+- **HTTPS.** Plain `http` is accepted for a loopback address only. For a host on a network you
+  trust, build the transport yourself: `transport=HttpTransport(origin, allow_plain_http=True)`.
 - **Registering is not being admitted.** Until the operator admits your handle, every call but
   `register` raises `BamError` with status 401, and the host does not say why.
 - **The target is sent as you write it.** The path and query are signed and sent byte for byte.
   Encode them yourself; nothing is normalised for you.
 - **Your clock matters.** A request signed more than five minutes from the host's time is refused
   with 401.
-- **Errors.** `invoke` raises `BamError` for any answer but 200. It carries `status`, `detail` and,
-  when the host says to wait (429 or 503), `retry_after` in seconds. A retry needs no special
+- **Errors.** `register`, `token` and `invoke` raise `BamError` for any answer but 200, and for a
+  200 they cannot read. It carries `status`, `detail` and, when the host says to wait (429 or 503),
+  `retry_after` in seconds. `send` returns the answer whatever its status. Network failures are the
+  standard library's own (`OSError`). A retry needs no special
   handling: call again, and the request is signed again.
 - **A host without server tokens.** For a host in client-signed-only mode, pass
   `server_tokens=False`.
@@ -90,6 +98,8 @@ check them. Use the functions above.
   `tests/vectors/SOURCE.md` names the commit, and `tools/sync_vectors.py` refreshes them.
 - `tests/test_client.py` runs the whole flow against a stand-in host on a loopback port. The
   stand-in's judgement of request proofs is itself held to the vectors.
+- `tests/test_wire.py` compares what the client writes with the recorded messages, and holds the
+  stand-in to the answers the specification lists, so it refuses what a real host refuses.
 
 ## Not here yet
 

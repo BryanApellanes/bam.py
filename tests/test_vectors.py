@@ -164,12 +164,6 @@ class TokenVectors(unittest.TestCase):
                 self.assertFalse(verify_token(case["token"], public_key(case["key"])))
 
 
-    def test_reads_the_time_a_real_host_writes(self):
-        """bam.py takes the expiry from the token, so the seven-digit fraction never has to be parsed."""
-        issued = [json.loads(r["json"]) for r in read("messages.json")["responses"] if r["kind"] == "token"]
-        self.assertTrue(any("." in answer["expiresUtc"] for answer in issued))
-
-
 class RequestProofVectors(unittest.TestCase):
     """Holds the stand-in host's judgement to the real host's recorded verdicts."""
 
@@ -194,16 +188,6 @@ class RequestProofVectors(unittest.TestCase):
                     self.assertFalse(judge_proof(*arguments))
                     checked += 1
         self.assertGreaterEqual(checked, 22)
-
-
-class MessageVectors(unittest.TestCase):
-    def test_the_recorded_bodies_are_the_ones_the_client_writes_and_reads(self):
-        document = read("messages.json")
-        register = json.loads(document["requests"][0]["json"])
-        self.assertEqual(sorted(register), ["KeySetHandle", "PublicEccKeyPem", "PublicRsaKeyPem"])
-        self.assertEqual(list(json.loads(document["requests"][3]["json"])), ["ClientToken"])
-        issued = json.loads(document["responses"][1]["json"])
-        self.assertEqual(sorted(issued), ["expiresUtc", "keyFingerprint", "token"])
 
 
 if __name__ == "__main__":

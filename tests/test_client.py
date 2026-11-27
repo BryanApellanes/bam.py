@@ -264,6 +264,7 @@ class KeyFiles(unittest.TestCase):
         os.makedirs(os.path.dirname(self.path))
         with open(self.path, "w") as handle:
             handle.write("not a key")
+        os.chmod(self.path, 0o600)
         with self.assertRaises(ValueError):
             FileActorKeyStore(self.path)
 

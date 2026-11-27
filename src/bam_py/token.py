@@ -25,13 +25,23 @@ def encode_token(claims: dict, sign: Callable[[bytes], bytes]) -> str:
 
 
 def decode_token(token: str) -> dict:
-    """Reads a token's claims. It does not check the signature."""
-    parts = token.split(".")
+    """Reads a token's claims, as the host reads them. It does not check the signature.
+
+    Raises ValueError for anything the host would not read: sub, sid, iss, iat and exp are all
+    required, the first three as strings and the last two as JSON integers.
+    """
+    parts = token.split(".") if isinstance(token, str) else []
     if len(parts) != 3:
         raise ValueError("A token has three segments.")
     claims = json.loads(b64url_decode(parts[1]).decode("utf-8"))
     if not isinstance(claims, dict):
         raise ValueError("A token's payload is a JSON object.")
+    for name in ("sub", "sid", "iss"):
+        if not isinstance(claims.get(name), str):
+            raise ValueError(f"A token's {name} claim is a string.")
+    for name in ("iat", "exp"):
+        if type(claims.get(name)) is not int:
+            raise ValueError(f"A token's {name} claim is a whole number.")
     return claims
 
 

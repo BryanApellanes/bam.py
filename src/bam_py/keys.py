@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import os
+import stat
 import tempfile
 from typing import Protocol
 
@@ -117,15 +118,21 @@ class MemoryActorKeyStore(_KeyStore):
 class FileActorKeyStore(_KeyStore):
     """A key kept in a PEM file that only its owner can read.
 
-    The file is created on first use, and a leading ~ in the path is the user home directory. On Unix it is created with mode 0600 and never exists with wider
-    access. On Windows it inherits the access rules of its directory, so keep it in the user's profile.
-    The file is not encrypted unless a password is given.
+    The file is created on first use, and a leading ~ in the path is the user home directory.
+
+    On Unix it is created with mode 0600 and never exists with wider access, a directory made for it
+    is 0700, and an existing key file that its group or others can reach is refused. On Windows it
+    inherits the access rules of its directory, so keep it in the user's profile.
+
+    The file is not encrypted unless a password is given. An empty password is refused.
     """
 
     def __init__(self, path: str | os.PathLike, password: bytes | None = None):
         self.path = os.path.expanduser(os.fspath(path))
         if not os.path.exists(self.path):
             self._create(password)
+        if os.name == "posix" and stat.S_IMODE(os.stat(self.path).st_mode) & 0o077:
+            raise PermissionError(f"{self.path} can be reached by its group or others. Run: chmod 600 {self.path}")
         with open(self.path, "rb") as handle:
             private_key = serialization.load_pem_private_key(handle.read(), password=password)
         if not isinstance(private_key, ec.EllipticCurvePrivateKey):
@@ -133,12 +140,15 @@ class FileActorKeyStore(_KeyStore):
         super().__init__(private_key)
 
     def _create(self, password: bytes | None) -> None:
-        encryption = serialization.BestAvailableEncryption(password) if password else serialization.NoEncryption()
+        if password is not None and len(password) == 0:
+            raise ValueError("The password is empty. Pass None for a key file without a password.")
+        encryption = (serialization.BestAvailableEncryption(password) if password is not None
+                      else serialization.NoEncryption())
         pem = ec.generate_private_key(ec.SECP256R1()).private_bytes(
             serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, encryption
         )
         directory = os.path.dirname(os.path.abspath(self.path))
-        os.makedirs(directory, exist_ok=True)
+        os.makedirs(directory, mode=0o700, exist_ok=True)
         # mkstemp makes the file for its owner only, under a name nothing else has. The key is complete
         # before it gets its real name, and linking refuses to replace a key that appeared meanwhile, so
         # two processes starting at once end up reading the same key.

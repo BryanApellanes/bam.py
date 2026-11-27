@@ -1,9 +1,11 @@
 """Byte encodings the wire uses: base64url without padding, and the two forms of an ECDSA signature."""
 import base64
+import re
 
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature, encode_dss_signature
 
 _COORDINATE_BYTES = 32
+_BASE64URL = re.compile(r"[A-Za-z0-9_-]*")
 
 
 def b64url_encode(data: bytes) -> str:
@@ -12,7 +14,9 @@ def b64url_encode(data: bytes) -> str:
 
 
 def b64url_decode(text: str) -> bytes:
-    """Reads base64url with or without padding."""
+    """Reads base64url without padding. Padding, or any character outside the alphabet, is refused."""
+    if not isinstance(text, str) or _BASE64URL.fullmatch(text) is None or len(text) % 4 == 1:
+        raise ValueError("Not base64url without padding.")
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
